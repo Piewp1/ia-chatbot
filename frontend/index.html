@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chatbot IA Local</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Chatbot IA Local</h1>
+    <span id="status" class="status">conectando…</span>
+    <button id="clear" type="button" title="Nueva conversación">Nueva</button>
+  </header>
+  <main id="messages" aria-live="polite">
+    <div class="msg bot">Hola, ¿en qué te puedo ayudar?</div>
+  </main>
+  <form id="form">
+    <textarea id="input" rows="1" placeholder="Escribe tu mensaje…" required></textarea>
+    <button id="send" type="submit">Enviar</button>
+  </form>
+  <script src="app.js"></script>
+</body>
+</html>
