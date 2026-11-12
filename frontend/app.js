@@ -1,8 +1,21 @@
 // Frontend del chatbot: habla con FastAPI via nginx (/api -> :8000), que a su vez usa Ollama.
+// Las conversaciones se guardan en localStorage (solo en este navegador).
 const API = "/api";
+const KEY = "chatbot.chats";
 const $ = (id) => document.getElementById(id);
-const messages = $("messages"), form = $("form"), input = $("input"), send = $("send"), status = $("status");
-let history = [];
+const messages = $("messages"), form = $("form"), input = $("input"), send = $("send"),
+      status = $("status"), list = $("chats"), sidebar = $("sidebar");
+
+// chats: [{ id, title, updated, history: [{role, content, meta?}] }]
+let chats = load();
+let current = null;
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; }
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(chats)); } catch { /* almacenamiento lleno o bloqueado */ }
+}
 
 function add(text, cls, meta) {
   const div = document.createElement("div");
@@ -17,6 +30,48 @@ function add(text, cls, meta) {
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
   return div;
+}
+
+function renderList() {
+  list.innerHTML = "";
+  for (const c of [...chats].sort((a, b) => b.updated - a.updated)) {
+    const li = document.createElement("li");
+    if (current && c.id === current.id) li.className = "active";
+    const t = document.createElement("span");
+    t.className = "title";
+    t.textContent = c.title;
+    const del = document.createElement("button");
+    del.className = "del";
+    del.title = "Eliminar";
+    del.textContent = "✕";
+    del.onclick = (e) => { e.stopPropagation(); remove(c.id); };
+    li.onclick = () => open(c.id);
+    li.append(t, del);
+    list.appendChild(li);
+  }
+}
+
+function renderChat() {
+  messages.innerHTML = "";
+  add("Hola, ¿en qué te puedo ayudar?", "bot");
+  for (const m of current?.history || []) add(m.content, m.role === "user" ? "user" : "bot", m.meta);
+}
+
+function open(id) {
+  current = chats.find((c) => c.id === id) || null;
+  renderChat();
+  renderList();
+  sidebar.classList.remove("open");
+  input.focus();
+}
+
+function newChat() { open(null); }
+
+function remove(id) {
+  if (!confirm("¿Eliminar esta conversación?")) return;
+  chats = chats.filter((c) => c.id !== id);
+  save();
+  if (current?.id === id) newChat(); else renderList();
 }
 
 async function checkHealth() {
@@ -37,6 +92,19 @@ form.addEventListener("submit", async (e) => {
   if (!text) return;
   input.value = "";
   input.style.height = "auto";
+
+  // La conversación se crea al enviar el primer mensaje; el título es ese mensaje.
+  if (!current) {
+    current = { id: Date.now().toString(36), title: text.slice(0, 40), updated: Date.now(), history: [] };
+    chats.push(current);
+  }
+  const chat = current;
+  const history = chat.history.map(({ role, content }) => ({ role, content }));
+  chat.history.push({ role: "user", content: text });
+  chat.updated = Date.now();
+  save();
+  renderList();
+
   add(text, "user");
   send.disabled = true;
   const typing = add("Pensando…", "bot typing");
@@ -48,12 +116,23 @@ form.addEventListener("submit", async (e) => {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || r.statusText);
+    const meta = `${d.model} · ${(d.elapsed_ms / 1000).toFixed(1)} s`;
+    chat.history.push({ role: "assistant", content: d.reply, meta });
+    chat.updated = Date.now();
+    save();
     typing.remove();
-    add(d.reply, "bot", `${d.model} · ${(d.elapsed_ms / 1000).toFixed(1)} s`);
-    history.push({ role: "user", content: text }, { role: "assistant", content: d.reply });
+    if (current === chat) add(d.reply, "bot", meta);
   } catch (err) {
+    // El mensaje sin respuesta se descarta para no dejar el historial descuadrado.
+    chat.history.pop();
+    if (!chat.history.length) {
+      chats = chats.filter((c) => c !== chat);
+      if (current === chat) current = null;
+    }
+    save();
+    renderList();
     typing.remove();
-    add("Error: " + err.message, "bot error");
+    if (current === chat) add("Error: " + err.message, "bot error");
   } finally {
     send.disabled = false;
     input.focus();
@@ -69,10 +148,8 @@ input.addEventListener("input", () => {
   input.style.height = input.scrollHeight + "px";
 });
 
-$("clear").addEventListener("click", () => {
-  history = [];
-  messages.innerHTML = "";
-  add("Nueva conversación. ¿En qué te ayudo?", "bot");
-});
+$("new").addEventListener("click", newChat);
+$("toggle").addEventListener("click", () => sidebar.classList.toggle("open"));
 
+newChat();
 checkHealth();
